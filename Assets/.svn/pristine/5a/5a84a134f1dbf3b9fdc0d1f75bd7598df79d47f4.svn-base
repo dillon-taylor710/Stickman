@@ -1,0 +1,140 @@
+﻿using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using System.IO;
+using UnityEngine.UI;
+using Mirror;
+using FusionGame.Stickman;
+using Fusion;
+using FusionHelpers;
+using Tanknarok.UI;
+using System.Linq;
+
+public class WaitingSceneManager : MonoBehaviour, ISceneManagerScript
+{
+    public App Manager;
+    public Text StatusText;
+    public Text LobbyText;
+    public Renderer character_renderer;
+    public List<CharacterTexture> character_textures;
+
+    public FusionLauncher.ConnectionStatus _status { get; set; } = FusionLauncher.ConnectionStatus.Disconnected;
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        int skin_id = PlayerPrefs.GetInt("Char_SKIN_ID", 0);
+        if (skin_id < character_textures.Count)
+        {
+            character_renderer.material.SetTexture("_MainTex", character_textures[skin_id].Main);
+            //character_renderer.material.SetTexture("_MetallicGlossMap", character_textures[index].Metalic);
+            //character_renderer.material.SetTexture("_BumpMap", character_textures[index].Normal);
+        }
+
+        string[] game_info = File.ReadAllLines(Path.Combine(Directory.GetCurrentDirectory(), "Game.ini"));
+
+        for (int i = 0; i < game_info.Length; i++)
+        {
+            if (game_info[i].StartsWith("ServerIP"))
+            {
+                string[] server = game_info[i].Split(':');
+                if (server.Length > 1)
+                    ;// networkManager.networkAddress = server[1].Trim();
+            }
+            else if (game_info[i].StartsWith("Players"))
+            {
+                string[] player = game_info[i].Split(':');
+                if (player.Length > 1)
+                {
+                    NetworkProjectConfig.Global.Simulation.PlayerCount = int.Parse(player[1].Trim());
+
+                    if (NetworkProjectConfig.Global.Simulation.PlayerCount > Constants.max_users)
+                        NetworkProjectConfig.Global.Simulation.PlayerCount = Constants.max_users;
+                }
+            }
+        }
+
+        StartCoroutine(LoadScene());
+    }
+
+    public void OnBackClicked()
+    {
+        Manager.BackToLevelScene();
+    }
+
+    IEnumerator LoadScene()
+    {
+        yield return new WaitForSeconds(1f);
+
+        if (Constants.isServer)
+        {
+            Manager.OnHostOptions();
+            Manager.SetSceneManager(this);
+            Manager.OnEnterRoom();
+        }
+        else
+        {
+            Manager.OnJoinOptions();
+            Manager.SetSceneManager(this);
+            Manager.OnEnterRoom();
+        }
+    }
+
+    void Update()
+    {
+        if (Manager.runner != null)
+        {
+            int player_count = Manager.runner.ActivePlayers.Count();
+            int max_count = Constants.max_users;
+
+            FusionGame.Stickman.GameManager manager = Manager.runner.GetGameManager();
+            if (manager != null)
+                max_count = manager.maxPlayer;
+
+            if (player_count > 0)
+            {
+                LobbyText.text = player_count + "/" + max_count + "\nPOPULATING";
+
+                if (player_count == max_count)
+                {
+                    Manager.SetState(SCENE_STATE.SCENE_READY);
+                    if (Manager.runner.IsServer || Manager.runner.IsSharedModeMasterClient)
+                    {
+                        Manager.runner.SessionInfo.IsOpen = false;
+                        Manager.runner.SessionInfo.IsVisible = false;
+                    }
+                }
+            }
+        }
+    }
+
+    public void SetConnectionStatus(FusionLauncher.ConnectionStatus status)
+    {
+        _status = status;
+    }
+
+    public void OnConnectionStatusUpdate(NetworkRunner runner, FusionLauncher.ConnectionStatus status, string reason)
+    {
+        if (status != _status)
+        {
+            switch (status)
+            {
+                case FusionLauncher.ConnectionStatus.Disconnected:
+                    StatusText.text = "DISCONNECTED!";
+                    break;
+                case FusionLauncher.ConnectionStatus.Failed:
+                    StatusText.text = "FAILED!";
+                    break;
+                case FusionLauncher.ConnectionStatus.Connecting:
+                    StatusText.text = "CONNECTING TO SERVER...";
+                    break;
+                case FusionLauncher.ConnectionStatus.Connected:
+                    StatusText.text = "WAITING FOR PLAYERS...";
+                    break;
+            }
+        }
+
+        _status = status;
+    }
+}
